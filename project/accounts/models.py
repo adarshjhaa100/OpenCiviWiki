@@ -14,7 +14,8 @@ from common.utils import PathAndRename
 
 class User(AbstractUser):
     """
-    A new custom User model for any functionality needed in the future. Extending AbstractUser
+    A new custom User model for any functionality
+    needed in the future. Extending AbstractUser
     allows for adding new fields to the user model as needed.
     """
 
@@ -87,11 +88,8 @@ class ProfileManager(models.Manager):
         return [self.chip_summarize(following) for following in profile.following.all()]
 
 
-profile_upload_path = PathAndRename("")
-
-
 class Profile(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     first_name = models.CharField(max_length=63, blank=False)
     last_name = models.CharField(max_length=63, blank=False)
     about_me = models.CharField(max_length=511, blank=True)
@@ -113,10 +111,10 @@ class Profile(models.Model):
 
     objects = ProfileManager()
     profile_image = models.ImageField(
-        upload_to=profile_upload_path, blank=True, null=True
+        upload_to=PathAndRename("profile_uploads"), blank=True, null=True
     )
     profile_image_thumb = models.ImageField(
-        upload_to=profile_upload_path, blank=True, null=True
+        upload_to=PathAndRename("profile_uploads"), blank=True, null=True
     )
 
     @property

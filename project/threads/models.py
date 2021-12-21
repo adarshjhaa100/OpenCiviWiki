@@ -4,14 +4,13 @@ import math
 import os
 from calendar import month_name
 
-from accounts.models import Profile
 from common.utils import PathAndRename
-from core.constants import CIVI_TYPES, US_STATES
+from core.constants import CIVI_TYPES
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
-from accounts.models import Profile
+from django.contrib.auth import get_user_model
 from taggit.managers import TaggableManager
 from categories.models import Category
 
@@ -24,7 +23,6 @@ class Fact(models.Model):
 
 
 class ThreadManager(models.Manager):
-    # TODO: move this to read.py, try to be more query operation specific here
     def summarize(self, thread):
         # Number of characters after which to truncate thread
         thread_truncate_length = 320
@@ -38,21 +36,16 @@ class ThreadManager(models.Manager):
             "id": thread.id,
             "title": thread.title,
             "summary": thread.summary[:thread_truncate_length] + (ellipsis_if_too_long),
-            "created": "{0} {1}, {2}".format(
-                month_name[thread.created.month],
-                thread.created.day,
-                thread.created.year,
-            ),
+            "created": f"""{month_name[thread.created.month]}
+                            {thread.created.day},
+                            {thread.created.year}""",
             "category_id": thread.category.id,
-            "location": thread.level
-            if not thread.state
-            else dict(US_STATES).get(thread.state),
             "image": thread.image_url,
         }
         author_data = {
-            "username": thread.author.user.username,
-            "full_name": thread.author.full_name,
-            "profile_image": thread.author.profile_image_url,
+            "username": thread.author.username,
+            "full_name": thread.author.profile.full_name,
+            "profile_image": thread.author.profile.profile_image_url,
         }
         stats_data = {
             "num_views": thread.num_views,
@@ -69,12 +62,9 @@ class ThreadManager(models.Manager):
         return self.all().filter(category__in=categories)
 
 
-image_upload_path = PathAndRename("")
-
-
 class Thread(models.Model):
     author = models.ForeignKey(
-        Profile, default=None, null=True, on_delete=models.PROTECT
+        get_user_model(), default=None, null=True, on_delete=models.PROTECT
     )
     category = models.ForeignKey(
         Category, default=None, null=True, on_delete=models.PROTECT
@@ -85,14 +75,9 @@ class Thread(models.Model):
 
     title = models.CharField(max_length=127, blank=False, null=False)
     summary = models.CharField(max_length=4095, blank=False, null=False)
-    image = models.ImageField(upload_to=image_upload_path, blank=True, null=True)
-
-    level_CHOICES = (
-        ("federal", "Federal"),
-        ("state", "State"),
+    image = models.ImageField(
+        upload_to=PathAndRename("thread_uploads"), blank=True, null=True
     )
-    level = models.CharField(max_length=31, default="federal", choices=level_CHOICES)
-    state = models.CharField(max_length=2, choices=US_STATES, blank=True)
 
     def __str__(self):
         return self.title
@@ -125,7 +110,7 @@ class Thread(models.Model):
     @property
     def created_date_str(self):
         d = self.created
-        return "{0} {1}, {2}".format(month_name[d.month], d.day, d.year)
+        return f"{month_name[d.month]} {d.day}, {d.year}"
 
 
 class CiviManager(models.Manager):
@@ -134,7 +119,7 @@ class CiviManager(models.Manager):
             "id": civi.id,
             "type": civi.c_type,
             "title": civi.title,
-            "body": civi.body[0:150],
+            "body": civi.body[:150],
         }
 
     def serialize(self, civi, filter=None):
@@ -143,15 +128,15 @@ class CiviManager(models.Manager):
             "title": civi.title,
             "body": civi.body,
             "author": {
-                "username": civi.author.user.username,
-                "profile_image": civi.author.profile_image_url,
+                "username": civi.author.username,
+                "profile_image": civi.author.profile.profile_image_url,
                 "first_name": civi.author.first_name,
                 "last_name": civi.author.last_name,
             },
             "tags": [tag.title for tag in civi.tags.all()],
-            "created": "{0} {1}, {2}".format(
-                month_name[civi.created.month], civi.created.day, civi.created.year
-            ),
+            "created": f"""{month_name[civi.created.month]}
+                            {civi.created.day},
+                            {civi.created.year}""",
             "attachments": [],
             "votes": civi.votes,
             "id": civi.id,
@@ -163,25 +148,21 @@ class CiviManager(models.Manager):
         return json.dumps(data, cls=DjangoJSONEncoder)
 
     def serialize_s(self, civi, filter=None):
-        # Get profile profile image, or set to default image
-        profile_image_or_default = (
-            civi.author.profile_image.url or "/media/profile/default.png"
-        )
 
         data = {
             "type": civi.c_type,
             "title": civi.title,
             "body": civi.body,
             "author": dict(
-                username=civi.author.user.username,
-                profile_image=profile_image_or_default,
+                username=civi.author.username,
+                profile_image=civi.author.profile.profile_image_url,
                 first_name=civi.author.first_name,
                 last_name=civi.author.last_name,
             ),
             "tags": [h.title for h in civi.tags.all()],
-            "created": "{0} {1}, {2}".format(
-                month_name[civi.created.month], civi.created.day, civi.created.year
-            ),
+            "created": f"""{month_name[civi.created.month]}
+                            {civi.created.day},
+                            {civi.created.year}""",
             "attachments": [],
             "votes": civi.votes,
             "id": civi.id,
@@ -195,15 +176,21 @@ class CiviManager(models.Manager):
             return json.dumps({filter: data[filter]})
         return data
 
-    def thread_sorted_by_score(self, civis_queryset, req_acct_id):
+    def thread_sorted_by_score(self, civis_queryset, requested_user_id):
         queryset = civis_queryset.order_by("-created")
-        return sorted(queryset.all(), key=lambda c: c.score(req_acct_id), reverse=True)
+        return sorted(
+            queryset.all(), key=lambda c: c.score(requested_user_id), reverse=True
+        )
 
 
 class Civi(models.Model):
     objects = CiviManager()
     author = models.ForeignKey(
-        Profile, related_name="civis", default=None, null=True, on_delete=models.PROTECT
+        get_user_model(),
+        related_name="civis",
+        default=None,
+        null=True,
+        on_delete=models.PROTECT,
     )
     thread = models.ForeignKey(
         Thread, related_name="civis", default=None, null=True, on_delete=models.PROTECT
@@ -211,14 +198,7 @@ class Civi(models.Model):
 
     tags = TaggableManager()
 
-    linked_civis = models.ManyToManyField("self", related_name="links")
-    response_civis = models.ForeignKey(
-        "self",
-        related_name="responses",
-        default=None,
-        null=True,
-        on_delete=models.PROTECT,
-    )  # TODO: Probably remove this
+    linked_civis = models.ManyToManyField("self", related_name="links", blank=True)
 
     title = models.CharField(max_length=255, blank=False, null=False)
     body = models.CharField(max_length=1023, blank=False, null=False)
@@ -261,10 +241,11 @@ class Civi(models.Model):
     @property
     def created_date_str(self):
         d = self.created
-        return "{0} {1}, {2}".format(month_name[d.month], d.day, d.year)
+        return f"{month_name[d.month]} {d.day}, {d.year}"
 
-    def score(self, request_acct_id=None):
-        # TODO: add docstring comment describing this score function in relatively plain English
+    def score(self, requested_user_id=None):
+        # TODO: add docstring comment describing this score function
+        # in relatively plain English
         # include descriptions of all variables
 
         # Weights for different vote types
@@ -273,7 +254,6 @@ class Civi(models.Model):
         pos_weight = 1
         vpos_weight = 2
 
-        owner_id = self.author
         post_time = self.created
         current_time = datetime.datetime.now()
 
@@ -289,11 +269,12 @@ class Civi(models.Model):
         # Sum up all of the scores
         scores_sum = vneg_score + neg_score + pos_score + vpos_score
 
-        if request_acct_id:
-            profile = Profile.objects.get(id=request_acct_id)
+        if requested_user_id:
+            profile = get_user_model().objects.get(id=requested_user_id).profile
             scores_sum = (
                 1
-                if self.author in profile.following.all().values_list("id", flat=True)
+                if self.author.profile
+                in profile.following.all().values_list("id", flat=True)
                 else 0
             )
         else:
@@ -350,7 +331,7 @@ class Civi(models.Model):
 
         return rank
 
-    def dict_with_score(self, req_acct_id=None):
+    def dict_with_score(self, requested_user_id=None):
         data = {
             "id": self.id,
             "thread_id": self.thread.id,
@@ -358,9 +339,9 @@ class Civi(models.Model):
             "title": self.title,
             "body": self.body,
             "author": {
-                "username": self.author.user.username,
-                "profile_image": self.author.profile_image_url,
-                "profile_image_thumb_url": self.author.profile_image_thumb_url,
+                "username": self.author.username,
+                "profile_image": self.author.profile.profile_image_url,
+                "profile_image_thumb_url": self.author.profile.profile_image_thumb_url,
                 "first_name": self.author.first_name,
                 "last_name": self.author.last_name,
             },
@@ -375,20 +356,23 @@ class Civi(models.Model):
                 {"id": img.id, "url": img.image_url} for img in self.images.all()
             ],
         }
-        if req_acct_id:
-            data["score"] = self.score(req_acct_id)
+        if requested_user_id:
+            data["score"] = self.score(requested_user_id)
 
         return data
 
 
-image_upload_path = PathAndRename("")
-
-
 class Response(models.Model):
     author = models.ForeignKey(
-        Profile, default=None, null=True, on_delete=models.PROTECT
+        get_user_model(), default=None, null=True, on_delete=models.PROTECT
     )
-    civi = models.ForeignKey(Civi, default=None, null=True, on_delete=models.PROTECT)
+    civi = models.ForeignKey(
+        Civi,
+        default=None,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name="responses",
+    )
 
     title = models.CharField(max_length=127)
     body = models.TextField(max_length=2047)
@@ -412,7 +396,9 @@ class CiviImage(models.Model):
     objects = CiviImageManager()
     civi = models.ForeignKey(Civi, related_name="images", on_delete=models.PROTECT)
     title = models.CharField(max_length=255, null=True, blank=True)
-    image = models.ImageField(upload_to=image_upload_path, null=True, blank=True)
+    image = models.ImageField(
+        upload_to=PathAndRename("civi_uploads"), null=True, blank=True
+    )
     created = models.DateTimeField(auto_now_add=True, blank=True, null=True)
 
     @property
@@ -440,8 +426,8 @@ class ActivityManager(models.Manager):
 
 
 class Activity(models.Model):
-    account = models.ForeignKey(
-        Profile, default=None, null=True, on_delete=models.PROTECT
+    user = models.ForeignKey(
+        get_user_model(), default=None, null=True, on_delete=models.PROTECT
     )
     thread = models.ForeignKey(
         Thread, default=None, null=True, on_delete=models.PROTECT
@@ -471,10 +457,13 @@ class Activity(models.Model):
     def is_negative_vote(self):
         return self.activity_type.endswith("neg")
 
+    class Meta:
+        verbose_name_plural = "Activities"
+
 
 class Rebuttal(models.Model):
     author = models.ForeignKey(
-        Profile, default=None, null=True, on_delete=models.PROTECT
+        get_user_model(), default=None, null=True, on_delete=models.PROTECT
     )
     response = models.ForeignKey(
         Response, default=None, null=True, on_delete=models.PROTECT

@@ -31,3 +31,10 @@ jobs:
       run: |
         cd project
         pytest -p no:warning
+    - name: Lint
+      uses: py-actions/flake8@v1
+      with:
+        ignore: "E203,W503"
+        max-line-length: "88"
+        exclude: "**/migrations/*.py"
+

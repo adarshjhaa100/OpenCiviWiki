@@ -4,23 +4,24 @@ Class based views.
 This module will include views for the accounts app.
 """
 
+from core.custom_decorators import full_profile, login_required
 from django.conf import settings
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic.edit import FormView, UpdateView
-from django.views import View
+from django.contrib.auth import get_user_model, login
 from django.contrib.auth import views as auth_views
-from django.contrib.auth import login
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.sites.shortcuts import get_current_site
+from django.http import HttpResponseRedirect
+from django.template.response import TemplateResponse
 from django.urls import reverse_lazy
-from django.contrib.auth import get_user_model
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
-from django.template.response import TemplateResponse
+from django.views import View
+from django.views.generic.edit import FormView, UpdateView
+
+from accounts.authentication import account_activation_token, send_activation_email
+from accounts.forms import ProfileEditForm, UpdateProfileImage, UserRegistrationForm
 from accounts.models import Profile
-from accounts.forms import UserRegistrationForm, ProfileEditForm
-from accounts.authentication import send_activation_email, account_activation_token
-from django.http import HttpResponseRedirect
-from accounts.api import ProfileViewSet
+
 
 class RegisterView(FormView):
     """
@@ -35,10 +36,7 @@ class RegisterView(FormView):
         username = form.cleaned_data["username"]
         password = form.cleaned_data["password"]
         email = form.cleaned_data["email"]
-
         user = get_user_model().objects.create_user(username, email, password)
-        Profile.objects.create(user=user)
-
         return user
 
     def _send_email(self, user):
@@ -81,45 +79,45 @@ class PasswordResetCompleteView(auth_views.PasswordResetCompleteView):
 class SettingsView(LoginRequiredMixin, UpdateView):
     """A form view to edit Profile"""
 
-    login_url = 'accounts_login'
+    login_url = "accounts_login"
     form_class = ProfileEditForm
-    success_url = reverse_lazy('accounts_settings')
-    template_name = 'accounts/utils/update_settings.html'
+    success_url = reverse_lazy("accounts_settings")
+    template_name = "accounts/update_settings.html"
 
     def get_object(self, queryset=None):
         return Profile.objects.get(user=self.request.user)
 
-
     def get_initial(self):
         profile = Profile.objects.get(user=self.request.user)
-        self.initial.update({
-            "username": profile.user.username,
-            "email": profile.user.email,
-            "first_name": profile.first_name or None,
-            "last_name": profile.last_name or None,
-            "about_me": profile.about_me or None,
-        })
+        self.initial.update(
+            {
+                "username": profile.user.username,
+                "email": profile.user.email,
+                "first_name": profile.first_name or None,
+                "last_name": profile.last_name or None,
+                "about_me": profile.about_me or None,
+            }
+        )
         return super(SettingsView, self).get_initial()
 
 
 class ProfileActivationView(View):
     """
-        This shows different views to the user when they are verifying
-        their account based on whether they are already verified or not.
+    This shows different views to the user when they are verifying
+    their account based on whether they are already verified or not.
     """
 
     def get(self, request, uidb64, token):
 
-        User = get_user_model()
         try:
             uid = force_str(urlsafe_base64_decode(uidb64))
-            user = User.objects.get(pk=uid)
+            user = get_user_model().objects.get(pk=uid)
 
-        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        except (TypeError, ValueError, OverflowError, get_user_model().DoesNotExist):
             user = None
 
         if user is not None and account_activation_token.check_token(user, token):
-            profile = Profile.objects.get(user=user)
+            profile = user.profile
             if profile.is_verified:
                 redirect_link = {"href": "/", "label": "Back to Main"}
                 template_var = {
@@ -127,7 +125,6 @@ class ProfileActivationView(View):
                     "content": "You have already verified your email",
                     "link": redirect_link,
                 }
-                return TemplateResponse(request, "general-message.html", template_var)
             else:
                 profile.is_verified = True
                 profile.save()
@@ -138,7 +135,6 @@ class ProfileActivationView(View):
                     "content": "Thank you for verifying your email with CiviWiki",
                     "link": redirect_link,
                 }
-                return TemplateResponse(request, "general-message.html", template_var)
         else:
             # invalid link
             redirect_link = {"href": "/", "label": "Back to Main"}
@@ -147,13 +143,14 @@ class ProfileActivationView(View):
                 "content": "Email could not be verified",
                 "link": redirect_link,
             }
-            return TemplateResponse(request, "general-message.html", template_var)
+
+        return TemplateResponse(request, "general_message.html", template_var)
 
 
 class ProfileSetupView(LoginRequiredMixin, View):
     """A view to make the user profile full_profile"""
 
-    login_url = 'accounts_login'
+    login_url = "accounts_login"
 
     def get(self, request):
         profile = Profile.objects.get(user=request.user)
@@ -166,3 +163,35 @@ class ProfileSetupView(LoginRequiredMixin, View):
                 "email": request.user.email,
             }
             return TemplateResponse(request, "accounts/user-setup.html", data)
+
+
+@login_required
+@full_profile
+def user_profile(request, username=None):
+    if request.method == "GET":
+        if not username:
+            return HttpResponseRedirect(f"/profile/{request.user}")
+        else:
+            is_owner = username == request.user.username
+            try:
+                user = get_user_model().objects.get(username=username)
+            except get_user_model().DoesNotExist:
+                return HttpResponseRedirect("/404")
+
+        form = ProfileEditForm(
+            initial={
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.profile.first_name or None,
+                "last_name": user.profile.last_name or None,
+                "about_me": user.profile.about_me or None,
+            },
+            readonly=True,
+        )
+        data = {
+            "username": user,
+            "profile_image_form": UpdateProfileImage,
+            "form": form if is_owner else None,
+            "readonly": True,
+        }
+        return TemplateResponse(request, "account.html", data)

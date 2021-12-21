@@ -25,11 +25,10 @@ INSTALLED_APPS = (
     "django.contrib.staticfiles",
     "django_extensions",
     "storages",
-    "core",  # TODO: consider removing this, if we can move the decorators, etc. to an actual app
+    "core",
     "rest_framework",
-    "accounts",
+    "accounts.apps.AccountsConfig",
     "threads",
-    "frontend_views",
     "notifications",
     "corsheaders",
     "taggit",
@@ -75,7 +74,8 @@ TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [
-            os.path.join(BASE_DIR, "threads/templates/threads"), os.path.join(BASE_DIR, "accounts/templates/accounts")
+            os.path.join(BASE_DIR, "threads/templates/threads"),
+            os.path.join(BASE_DIR, "accounts/templates/accounts"),
         ],  # TODO: Add non-webapp template directory
         "APP_DIRS": True,
         "OPTIONS": {
@@ -94,21 +94,12 @@ WSGI_APPLICATION = "core.wsgi.application"
 # Apex Contact for Production Errors
 ADMINS = [("Development Team", "dev@civiwiki.org")]
 
-# AWS S3 Setup
-if "AWS_STORAGE_BUCKET_NAME" not in os.environ:
-    MEDIA_URL = "/media/"
-    MEDIA_ROOT = os.path.join(BASE_DIR, "media")
-else:
-    AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME")
-    AWS_S3_ACCESS_KEY_ID = os.getenv("AWS_S3_ACCESS_KEY_ID")
-    AWS_S3_SECRET_ACCESS_KEY = os.getenv("AWS_S3_SECRET_ACCESS_KEY")
-    DEFAULT_FILE_STORAGE = "storages.backends.s3boto.S3BotoStorage"
-    AWS_S3_SECURE_URLS = False
-    AWS_QUERYSTRING_AUTH = False
-
 STATIC_URL = "/static/"
-STATICFILES_DIRS = (os.path.join(BASE_DIR, "threads/templates/static"),)
+STATICFILES_DIRS = (os.path.join(BASE_DIR, "core/templates/static"),)
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+MEDIA_URL = "/media/"
 
 # TODO: re-organize and simplify staticfiles settings
 if "CIVIWIKI_LOCAL_NAME" not in os.environ:
@@ -158,38 +149,38 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_RENDERER_CLASSES": DEFAULT_RENDERER_CLASSES,
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        'rest_framework.authentication.BasicAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-    )
+        "rest_framework.authentication.BasicAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ),
 }
 
 # CORS Settings
 CORS_ORIGIN_ALLOW_ALL = True
 
 # Custom User model
-AUTH_USER_MODEL = 'accounts.User'
+AUTH_USER_MODEL = "accounts.User"
 
-DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
 # Login Logout URLS
 LOGIN_URL = "login/"
-LOGIN_REDIRECT_URL = '/'
-LOGOUT_REDIRECT_URL = '/'
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/"
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",  # noqa: E501
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-        'OPTIONS': {
-            'min_length': 4,
-        }
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {
+            "min_length": 4,
+        },
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]

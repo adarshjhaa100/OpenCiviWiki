@@ -1,11 +1,11 @@
 from rest_framework import serializers
-
+from django.contrib.auth import get_user_model
 from accounts.forms import UpdateProfileImage
 from accounts.models import Profile
 
 
 class ProfileCommonSerializer(serializers.ModelSerializer):
-    """ Common serializer for specific profile serializers"""
+    """Common serializer for specific profile serializers"""
 
     username = serializers.ReadOnlyField(source="user.username")
     is_following = serializers.SerializerMethodField()
@@ -52,7 +52,10 @@ class ProfileSerializer(ProfileCommonSerializer):
         )
 
     def validate_profile_image(self, value):
-        """This function is used to validate the profile image before added to the user profile"""
+        """
+        This function is used to validate
+        the profile image before added to the user profile
+        """
         request = self.context["request"]
         validation_form = UpdateProfileImage(request.POST, request.FILES)
 
@@ -88,3 +91,35 @@ class ProfileListSerializer(ProfileCommonSerializer):
             "profile_image_thumb_url",
             "is_following",
         )
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """
+    General serializer for a single model instance of a user
+    """
+
+    class Meta:
+        model = get_user_model()
+        fields = (
+            "username",
+            "first_name",
+            "last_name",
+            "email",
+            "is_staff",
+        )
+        read_only_fields = ("username", "email", "is_staff")
+
+
+class UserListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for multiple user model instances
+    """
+
+    class Meta:
+        model = get_user_model()
+        fields = (
+            "username",
+            "first_name",
+            "last_name",
+        )
+        read_only_fields = ("username", "first_name", "last_name")

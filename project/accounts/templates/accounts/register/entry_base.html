@@ -1,18 +1,25 @@
+{% extends "base.html" %}
+{% load static %}
 {% load i18n %}
-<html>
-<head>
-    {% load static %}
-    {% include "accounts/base/links.html" %}
-    {% include "accounts/base/less_headers/login_less.html" %}
-    <title>{% block title %}CiviWiki{% endblock %}</title>
-</head>
-<body>
-{% include 'accounts/register/header.html' %}
+
+{% block extra_css %}
+<link type="text/css" rel="stylesheet/less" href="{% static "less/base.less" %}"/>
+<link type="text/css" rel="stylesheet/less" href="{% static "less/login.less" %}"/>
+{% endblock extra_css %}
+
+{% block content %}
+<div class="valign center">
+    <div class="logo center">
+        <object class="logo-img" type="image/svg+xml" data="{% static "img/logo-civiwiki-tree-white.svg" %}" height="64px"></object>
+        <span class="wordmark">CiviWiki</span>
+    </div>
+</div>
+
 <div class="entry-base center-align valign-wrapper">
     <div class="entry-forms">
         <div class="card wrapper z-depth-3">
                 <div class="card-content" id="entry-content">
-                    {% block content %}{% endblock %}
+                    {% block entry_content %}{% endblock %}
                 </div>
             </div>
             <div class="back-to-main">
@@ -20,5 +27,4 @@
             </div>
     </div>
 </div>
-</body>
-</html>
+{% endblock content %}
